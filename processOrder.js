@@ -1,13 +1,16 @@
-const formId = '' // ID of the form
-const spreadsheetId = '' // ID of the result spreadsheetId
+const formId = '1dzhKexDAHB7kBccpHbbSlX-lRW6Y-QcZBzG5UtUkaVk' // ID of the form
+const spreadsheetId = '19k2OZVF8LnJ2bgZPalrT2phfPMadIKunLGUjagW9k30' // ID of the result spreadsheetId
 const year = '23'
-const closeDate = 'August 1st'
-const paymentDate = 'August 15, 2023'
-const pickupDate = 'SUNDAY, September 10th'
 const yt = 'Sukkos'//'Pesach'
 const sheetName = `Orders ${yt[0]}${year}` // name of the result sheet
 const hasCoupons = yt[0] === 'P' ? 2 : 0
 const coupons = [['S4', 400], ['S2', 200], ['MR', 250], ['KK', 300], ['LS', 200], ['KO', 300], ['RE', 400]]
+const couponCodeCol = 'Coupon code'
+const stayingHomeCol = 'Staying Home'
+const closeDate = 'August 1st'
+const paymentDate = 'August 15, 2023'
+const pickupDate = 'SUNDAY, September 10th'
+const processingFee = 15
 
 function triggerOnSubmit(e) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet()
@@ -36,7 +39,7 @@ function primaryOrderProcessor(sheet, orderRow, send = true) {
   const orderNum = semail.endsWith('@matanbsayser.org') ? semail.replace('@matanbsayser.org', '') : 96+orderRow
   sheet.getRange(orderRow, numColumns-(2+hasCoupons)).setValue(orderNum)
   const totalItemsCellName = sheet.getRange(orderRow, numColumns-(3+hasCoupons)).getA1Notation()
-  let totalFormula = hasCoupons ? "=0" : `=IF(${totalItemsCellName}>0,15,0)`
+  let totalFormula = hasCoupons ? "=0" : `=IF(${totalItemsCellName}>0,${processingFee},0)`
   let firstClm, colmnl, cpnCol, stayCol = ''
   for (let j=2;j<numColumns-(3+hasCoupons);j++) {
     if (priceHeaderData[2][j]) {
@@ -44,10 +47,10 @@ function primaryOrderProcessor(sheet, orderRow, send = true) {
       totalFormula += "+("+colmnl+orderRow+"*"+colmnl+"$3)"
       firstClm = firstClm ? firstClm : colmnl
     }
-    if (hasCoupons && priceHeaderData[1][j] === 'Coupon code') {
+    if (hasCoupons && priceHeaderData[1][j] === couponCodeCol) {
       stayCol = sheet.getRange(1, j+1, 1, 1).getA1Notation().match(/([A-Z]+)/)[0]
     }
-    if (hasCoupons && priceHeaderData[1][j] === 'Staying Home') {
+    if (hasCoupons && priceHeaderData[1][j] === stayingHomeCol) {
       cpnCol = sheet.getRange(1, j+1, 1, 1).getA1Notation().match(/([A-Z]+)/)[0]
     }
   }
@@ -61,7 +64,7 @@ function primaryOrderProcessor(sheet, orderRow, send = true) {
     })
     couponFormula += '), 0)'
     sheet.getRange(orderRow, numColumns-2).setValue(couponFormula)
-    sheet.getRange(orderRow, numColumns-1).setValue(`=IF(${totalCellName}>0,15,0)+${totalCellName}+${sheet.getRange(orderRow, numColumns-2).getA1Notation()}`)
+    sheet.getRange(orderRow, numColumns-1).setValue(`=IF(${totalCellName}>0,${processingFee},0)+${totalCellName}+${sheet.getRange(orderRow, numColumns-2).getA1Notation()}`)
   }
   const lasturl = getEditLink(dateStamp, semail)
   if (lasturl){
@@ -102,7 +105,7 @@ function composeEmail (data, orderRow, numColumns) {
   }
  
   if (row[numColumns-2]) {
-    message += `<tr style='padding:5px; ${style}'><td style='max-width: 350px'>Processing Fee</td><td></td><td></td><td style='padding:0 15px 0 5px;'><b>$15</b></td></tr>`
+    message += `<tr style='padding:5px; ${style}'><td style='max-width: 350px'>Processing Fee</td><td></td><td></td><td style='padding:0 15px 0 5px;'><b>$${processingFee}</b></td></tr>`
     if (hasCoupons && row[numColumns-3] < 0) {
       message += `<tr style='padding:5px; ${style = style ? '' : 'background:#ddd;'}'><td style='max-width: 350px'>Coupon</td><td></td><td style='text-align: right; padding:0 15px 0 5px;'></td><td><b>${row[numColumns-3]}</b></td></tr>`
     }
