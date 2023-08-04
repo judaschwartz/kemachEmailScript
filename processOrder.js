@@ -1,12 +1,12 @@
 const year = '23'
-const yt = 'Sukkos' //'Pesach'
+const yt = 'Sukkos' // 'Pesach'
 const orderSheet = `Orders ${yt[0]}${year}`
 const paymentsSheet = `Payments ${yt[0]}${year}`
 const hasCoupons = yt[0] === 'P' ? 2 : 0
 const coupons = [['S4', 400], ['S2', 200], ['MR', 250], ['KK', 300], ['LS', 200], ['KO', 300], ['RE', 400]]
 const couponCodeCol = 'Coupon code'
 const stayingHomeCol = 'Staying Home'
-const closeDate = 'August 1st'
+const closeDate = 'August 15th'
 const paymentDate = 'August 15, 2023'
 const pickupDate = 'SUNDAY, September 10th'
 const processingFee = 15
@@ -35,15 +35,13 @@ function triggerOnSubmit(e) {
   primaryOrderProcessor(sheet, orderRow, true)
 }
 
-function primaryOrderProcessor(sheet, orderRow, send = true) {
+function primaryOrderProcessor(sheet, orderRow, send) {
   const numRows = sheet.getLastRow()
   const numColumns = sheet.getLastColumn()
   const semail = setOrderValues(sheet, orderRow, numColumns)
-  const { subject, message, ordersForEmail } = composeEmail(sheet, orderRow, numRows, numColumns)
+  const { subject, message } = composeEmail(sheet, orderRow, numRows, numColumns)
   const draft = GmailApp.createDraft(semail, subject, message, {htmlBody: message})
-  if (send && ordersForEmail < 2) {
-    draft.send()
-  }
+  send && draft.send()
 }
 
 function setOrderValues(sheet, orderRow, numColumns) {
@@ -134,7 +132,7 @@ function composeEmail (sheet, orderRow, numRows, numColumns) {
     message += "<tr style='background:yellow; padding:5px; font-size:200%;'><td style='max-width: 350px'>Order Canceled</td><td></td><td></td><td style='padding:0 15px 0 5px;'><b>$0</b></td></tr></table>"
     message += `<a style="background:darkblue; border-radius: 10px; padding: 15px 0; font-size:120%; display: block; width: 80%; margin: 20px 10%; text-align:center; color: #fff; border: 1px solid #000" href="${row[numColumns-1]}">RECREATE ORDER</a>`
   }
-  return { subject, message, ordersForEmail }
+  return { subject, message }
 }
 
 function getEditLink(formUrl, timeStamp='', semail = '') {
@@ -154,25 +152,26 @@ function getEditLink(formUrl, timeStamp='', semail = '') {
       rts = response.getTimestamp()
       if (timeStamp == rts.toString()) {
         lasturl = response.getEditResponseUrl()
-        console.log({ rts, lasturl })
       }
     } else {
       const femail = response.getRespondentEmail()
       if (femail == semail) {
         lasturl = response.getEditResponseUrl()
-        console.log(lasturl)
+        // console.log(lasturl)
       }
     }
   }
   return lasturl
 }
 
-function processOrderData() {
+function processOrderData(startRow = 5) {
+  const timeStamp = (new Date()).toISOString().split('.')[0].replace(/-/g,"_")
   const ss = SpreadsheetApp.getActiveSpreadsheet()
   const sheet = ss.getSheetByName(orderSheet)
   const cols = sheet.getLastColumn()
   const numRows = sheet.getLastRow()
-  const data = sheet.getRange(5, 1, numRows, cols).getValues()
+  const data = sheet.getRange(startRow, 1, numRows, cols).getValues()
+  const recorded = []
   let result = ''
   for (let cells of data) {
     if (cells[cols - (4 + hasCoupons)] > 0) {
@@ -204,9 +203,37 @@ function processOrderData() {
           }
         }
       }
+      if (recorded.includes(cells[1])) {
+        console.log(`possible duplicate order for ${cells[1]}`)
+      }
+      recorded.push(cells[1])
       result += str + "\n"
     }
   }
   const folder = DriveApp.getFileById(ss.getId()).getParents().next()
-  folder.createFile('orderResults.txt', result)
+  folder.createFile(`orderResults_${timeStamp}.txt`, result)
+}
+
+function processPaymentData(startRow = 2) {
+  const timeStamp = (new Date()).toISOString().split('.')[0].replace(/-/g,"_")
+  const ss = SpreadsheetApp.getActiveSpreadsheet()
+  const sheet = ss.getSheetByName(paymentsSheet)
+  const cols = sheet.getLastColumn()
+  const numRows = sheet.getLastRow()
+  const data = sheet.getRange(startRow, 1, numRows, cols).getValues()
+  let result = ''
+  for (let cells of data) {
+    if (cells[3] > 0) {
+      let str = cells[0] ? String(cells[0]).substring(0, 3).padStart(3, '0') : 'XXX'
+      str += cells[13].substring(0, 20).toUpperCase().padEnd(20)
+      str += cells[14].substring(0, 10).toUpperCase().padEnd(10)
+      str += cells[15].substring(0, 10).toUpperCase().padEnd(10)
+      for (let i = 5; i < cols; i++) {
+        if (i < 9 || i > 16) {str += cells[i] ? String(cells[i]).substring(0, 4).padStart(4, '0') : '0000'}
+      }
+      result += str + "\n"
+    }
+  }
+  const folder = DriveApp.getFileById(ss.getId()).getParents().next()
+  folder.createFile(`paymentResults_${timeStamp}.txt`, result)
 }
