@@ -11,10 +11,10 @@ const paymentDate = 'August 15, 2023'
 const pickupDate = 'SUNDAY, September 10th'
 const processingFee = 15
 
-function checkMyQuota() {
-  const remaining = MailApp.getRemainingDailyQuota()
-  console.log("You can still send " + remaining + " emails today.")
-  return remaining
+function triggerOnSubmit(e) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet()
+  const orderRow = sheet.getActiveRange().getRow()
+  primaryOrderProcessor(sheet, orderRow, true)
 }
 
 function runManually() {
@@ -29,10 +29,10 @@ function runManually() {
   }
 }
 
-function triggerOnSubmit(e) {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet()
-  const orderRow = sheet.getActiveRange().getRow()
-  primaryOrderProcessor(sheet, orderRow, true)
+function getRemainingDailyEmails() {
+  const remaining = MailApp.getRemainingDailyQuota()
+  console.log("You can still send " + remaining + " emails today.")
+  return remaining
 }
 
 function primaryOrderProcessor(sheet, orderRow, send) {
@@ -90,11 +90,12 @@ function composeEmail (sheet, orderRow, numRows, numColumns) {
   const header_row = data[1]
   const price_row = data[2]
   const row = data[orderRow-1]
-  const ordersForEmail = data.filter(r => r[1] === row[1] && r[numColumns - (4+hasCoupons)]).length
+  const orderId = `${yt[0]}${year}-${row[numColumns - (3+hasCoupons)]}`
+  const ordersForEmail = data.filter(r => r[1] === row[1] && r[numColumns - 2]).length
   let subject = ordersForEmail > 1 ? '**POSSIBLE DUPLICATE**' : ''
-  subject += `${yt} 20${year} Kemach ${row[1].endsWith('@matanbsayser.org') ? 'PAPER ' : ''}Order ${yt[0]}${year}-${row[numColumns - (3+hasCoupons)]}`
+  subject += `${yt} 20${year} Kemach ${row[1].endsWith('@matanbsayser.org') ? 'PAPER ' : ''}Order ${orderId}`
   let message = ordersForEmail > 1 ? '<div style="color:red;background: yellow;padding: 5px 20px;"><h2>WARINING THERE IS ALREADY ANOTHER ORDER FROM THE SAME EMAIL ADDRESS</h2><p style="font-size: 15px;">If you intended to make both orders you can ignore this message, otherwise please edit one of your orders and set all the quantities to zero to cancel the duplicate.</p><h2>IF YOU LEAVE BOTH ORDERS AS IS YOU WILL BE RESPONSIBLE TO PAY FOR BOTH OF THEM</h2></div>' : ''
-  message +=`<div style="font-size: calc(0.5vw + 10px); max-width: 800px; margin: auto;"><div style="border: solid 3px #000; padding: 10px 15px; font-size: 20px;"><b>ID:</b> ${yt[0]}${year}-${row[numColumns - (3+hasCoupons)]}<b> NAME:</b> ${row[2].toUpperCase()}</div><img src="http://levavrohom.org/Capture.PNG" /><p>Your ${yt} 20${year} Kemach order was Successfully Submitted.<br><span style="background: #e1e100;">*IMPORTANT*</span> Please double check that the information below is correct.</p><h1 style="text-align: center;">Order # ${yt[0]}${year}-${row[numColumns - (3+hasCoupons)]} Summary</h1>`
+  message +=`<div style="font-size: calc(0.5vw + 10px); max-width: 800px; margin: auto;"><div style="border: solid 3px #000; padding: 10px 15px; font-size: 20px;"><b>ID:</b> ${orderId}<b> NAME:</b> ${row[2].toUpperCase()}</div><img src="http://levavrohom.org/Capture.PNG" /><p>Your ${yt} 20${year} Kemach order was Successfully Submitted.<br><span style="background: #e1e100;">*IMPORTANT*</span> Please double check that the information below is correct.</p><h1 style="text-align: center;">Order # ${orderId} Summary</h1>`
   message += "<table style='width: 100%; font-size:calc(0.6vw + 9px); border-spacing: 0;'>"
   let style = 'background:#ddd;'
   message += `<tr style='${style}'><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr>`
@@ -129,8 +130,14 @@ function composeEmail (sheet, orderRow, numRows, numColumns) {
     message += 'In order for the entire project to function successfully, we need manpower on that day to assist us with the distribution process. Please let us know if you are able to volunteer by either calling 440-7KEMACH (753-6224) or email kemachcleveland@gmail.com'
     message += '<p>If you have any questions please call the Kemach office 440-7KEMACH (753-6224) and leave a message.</p></div>'
   } else {
+    const validOrder = data.find(r => r[1] === row[1] && r[numColumns - 2])
     message += "<tr style='background:yellow; padding:5px; font-size:200%;'><td style='max-width: 350px'>Order Canceled</td><td></td><td></td><td style='padding:0 15px 0 5px;'><b>$0</b></td></tr></table>"
-    message += `<a style="background:darkblue; border-radius: 10px; padding: 15px 0; font-size:120%; display: block; width: 80%; margin: 20px 10%; text-align:center; color: #fff; border: 1px solid #000" href="${row[numColumns-1]}">RECREATE ORDER</a>`
+    if (!validOrder) {
+      message += `<a style="background:darkblue; border-radius: 10px; padding: 15px 0; font-size:120%; display: block; width: 80%; margin: 20px 10%; text-align:center; color: #fff; border: 1px solid #000" href="${row[numColumns-1]}">RECREATE ORDER</a>`
+    } else {
+      message += '<p><span style="background: #e1e100;">*IMPORTANT*</span> This order was cancelled, however our records show that there is another order for this email address that order can be edited via the button below</p>'
+      message += `<a style="background:darkblue; border-radius: 10px; padding: 15px 0; font-size:120%; display: block; width: 80%; margin: 20px 10%; text-align:center; color: #fff; border: 1px solid #000" href="${validOrder[numColumns-1]}">EDIT ORDER ${yt[0]}${year}-${validOrder[numColumns - (3+hasCoupons)]}</a>`
+    }
   }
   return { subject, message }
 }
