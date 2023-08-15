@@ -2,7 +2,7 @@ const year = '23'
 const yt = 'Sukkos' // 'Pesach'
 const orderSheet = `Orders ${yt[0]}${year}`
 const paymentsSheet = `Payments ${yt[0]}${year}`
-const hasCoupons = yt[0] === 'P' ? 2 : 0
+const hasCoupons = yt.startsWith('P') ? 2 : 0
 const coupons = [['S4', 400], ['S2', 200], ['MR', 250], ['KK', 300], ['LS', 200], ['KO', 300], ['RE', 400]]
 const couponCodeCol = 'Coupon code'
 const stayingHomeCol = 'Staying Home'
@@ -52,12 +52,11 @@ function setOrderValues(sheet, orderRow, numColumns) {
   sheet.getRange(orderRow, numColumns-(2+hasCoupons)).setValue(orderNum)
   const totalItemsCellName = sheet.getRange(orderRow, numColumns-(3+hasCoupons)).getA1Notation()
   let totalFormula = hasCoupons ? "=0" : `=IF(${totalItemsCellName}>0,${processingFee},0)`
-  let firstCol, lastCol, cpnCol, stayCol = ''
-  for (let j=2;j<numColumns-(3+hasCoupons);j++) {
+  let firstProdCol, lastProdCol, cpnCol, stayCol = ''
+  for (let j=2; j < numColumns-1; j++) {
     if (priceHeaderData[2][j]) {
-      lastCol = sheet.getRange(2, j+1, 2, 1).getA1Notation().match(/([A-Z]+)/)[0]
-      firstCol = firstCol || lastCol
-      totalFormula += "+("+lastCol+orderRow+"*"+lastCol+"$3)"
+      lastProdCol = sheet.getRange(2, j+1, 2, 1).getA1Notation().match(/([A-Z]+)/)[0]
+      firstProdCol = firstProdCol || lastProdCol
     }
     if (hasCoupons && priceHeaderData[1][j] === couponCodeCol) {
       stayCol = sheet.getRange(1, j+1, 1, 1).getA1Notation().match(/([A-Z]+)/)[0]
@@ -66,12 +65,13 @@ function setOrderValues(sheet, orderRow, numColumns) {
       cpnCol = sheet.getRange(1, j+1, 1, 1).getA1Notation().match(/([A-Z]+)/)[0]
     }
   }
-  sheet.getRange(orderRow, numColumns-(3+hasCoupons)).setValue(`=SUM(${firstCol}${orderRow}:${lastCol}${orderRow})`)
+  totalFormula += `+SUMPRODUCT(${firstProdCol}${orderRow}:${lastProdCol}${orderRow}, ${firstProdCol}$3:${lastProdCol}$3)`
+  sheet.getRange(orderRow, numColumns-(3+hasCoupons)).setValue(`=SUM(${firstProdCol}${orderRow}:${lastProdCol}${orderRow})`)
   sheet.getRange(orderRow, numColumns-(1+hasCoupons)).setValue(totalFormula)
   if (hasCoupons) {
     const totalCellName = sheet.getRange(orderRow, numColumns-3).getA1Notation()
     let couponFormula= `=-1*IF("Yes"=${stayCol}${orderRow}, MIN(CEILING.MATH(${totalCellName}/2), 0`
-    coupons.map((coupon) => {
+    coupons.forEach((coupon) => {
       couponFormula += `+(IFERROR(SEARCH("${coupon[0]}", ${cpnCol}${orderRow})*${coupon[1]}, 0))`
     })
     couponFormula += '), 0)'
@@ -236,7 +236,7 @@ function processPaymentData(startRow = 2) {
       str += cells[14].substring(0, 10).toUpperCase().padEnd(10)
       str += cells[15].substring(0, 10).toUpperCase().padEnd(10)
       for (let i = 5; i < cols; i++) {
-        if (i < 9 || i > 16) {str += cells[i] ? String(cells[i]).substring(0, 4).padStart(4, '0') : '0000'}
+        if (i < 9 || i > 16) {str += cells[i] ? String(parseInt(cells[i])).substring(0, 4).padStart(4, '0') : '0000'}
       }
       result += str + "\n"
     }
