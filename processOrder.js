@@ -52,7 +52,7 @@ function setOrderValues(sheet, orderRow, numColumns) {
   sheet.getRange(orderRow, numColumns-(2+hasCoupons)).setValue(orderNum)
   const totalItemsCellName = sheet.getRange(orderRow, numColumns-(3+hasCoupons)).getA1Notation()
   let totalFormula = hasCoupons ? "=0" : `=IF(${totalItemsCellName}>0,${processingFee},0)`
-  let firstProdCol, lastProdCol, cpnCol, stayCol = ''
+  let firstProdCol, lastProdCol, cpnCol, stayCol
   for (let j=2; j < numColumns-1; j++) {
     if (priceHeaderData[2][j]) {
       lastProdCol = sheet.getRange(2, j+1, 2, 1).getA1Notation().match(/([A-Z]+)/)[0]
@@ -171,50 +171,40 @@ function getEditLink(formUrl, timeStamp='', semail = '') {
   return lasturl
 }
 
-function processOrderData(startRow = 5) {
-  const timeStamp = (new Date()).toISOString().split('.')[0].replace(/-/g,"_")
+function processOrderData(startRow = 4) {
+  const timeStamp = (new Date()).toISOString().split('.')[0].replace(/-|:/g,"_")
   const ss = SpreadsheetApp.getActiveSpreadsheet()
   const sheet = ss.getSheetByName(orderSheet)
   const cols = sheet.getLastColumn()
   const numRows = sheet.getLastRow()
-  const data = sheet.getRange(startRow, 1, numRows, cols).getValues()
+  const data = sheet.getRange(1, 1, numRows, cols).getValues()
   const recorded = []
   let result = ''
-  for (let cells of data) {
-    if (cells[cols - (4 + hasCoupons)] > 0) {
-      let str = ''
-      let phone = 0;
+  for (let row of data.slice(startRow)) {
+    if (row[cols - (4 + hasCoupons)] > 0) {
+      let phone = ''
       for (let i = 0; i < cols; i++) {
-        let val = String(cells[i]).toUpperCase();
-        if (i === 2) {str += val.substring(0, 20).padEnd(20)}
-        else if (i === 4 || i === 6) {str += val.substring(0, 10).padEnd(10)}
+        let val = row[1] ? String(row[i]).toUpperCase() : ''
+        if (i === 2) {rowStr = val.substring(0, 20).padEnd(20)}
+        else if (i === 4 || i === 6) {rowStr += val.substring(0, 10).padEnd(10)}
         else if (i > 10 && i < 14) {
-          if (!phone) {phone = val;}
-          if (i === 13) {str += String(phone).padStart(10, '9');}
+          phone = phone ? phone : val
+          if (i === 13) {rowStr += phone.padStart(10, '9')}
         }
-        else if (i > 13 && i < 16) {str += val[0]}
-        else if (i === cols - (4 + hasCoupons) || i === cols - (3 + hasCoupons)) {
-          str += String((parseInt(val) * 1)).substring(0, 3).padStart(3, '0');
-        }
-        else if (i === cols - 2) {
-          str += parseInt(val) > 0 ? String(parseInt(val) * 1).substring(0, 4).padStart(4, '0') : '0000';
-        }
-        else if (i > 17 && i < cols - (4 + hasCoupons) ) {
-          str += val.substring(0, 2).padStart(2, '0');
-        }
-        if (hasCoupons) {
-          if (i === 9) {
-            str += val.substring(0, 2).padStart(2, 'X');
-          } else if (i === cols - 4) {
-            str += val[0]
-          }
+        else if ([data[1][i], data[1][i-1]].includes(stayingHomeCol)) {rowStr += val[0]}
+        else if ([data[1][i], data[1][i+1]].includes('Order ID')) {rowStr += val.substring(0, 3).padStart(3, '0')}
+        else if (data[1][i] === 'total') {rowStr += val.substring(0, 4).padStart(4, '0')}
+        else if (data[2][i]) {rowStr += val.substring(0, 2).padStart(2, '0')}
+        else if (hasCoupons) {
+          if (data[1][i] === couponCodeCol) {rowStr += val.substring(0, 2).padStart(2, 'X')}
+          else if (i === cols - 4) {rowStr += val[0]}
         }
       }
-      if (recorded.includes(cells[1])) {
-        console.log(`possible duplicate order for ${cells[1]}`)
+      if (recorded.includes(row[1])) {
+        console.log(`possible duplicate order for ${row[1]}`)
       }
-      recorded.push(cells[1])
-      result += str + "\n"
+      recorded.push(row[1])
+      result += rowStr + "\n"
     }
   }
   const folder = DriveApp.getFileById(ss.getId()).getParents().next()
@@ -222,23 +212,23 @@ function processOrderData(startRow = 5) {
 }
 
 function processPaymentData(startRow = 2) {
-  const timeStamp = (new Date()).toISOString().split('.')[0].replace(/-/g,"_")
+  const timeStamp = (new Date()).toISOString().split('.')[0].replace(/-|:/g,"_")
   const ss = SpreadsheetApp.getActiveSpreadsheet()
   const sheet = ss.getSheetByName(paymentsSheet)
   const cols = sheet.getLastColumn()
   const numRows = sheet.getLastRow()
   const data = sheet.getRange(startRow, 1, numRows, cols).getValues()
   let result = ''
-  for (let cells of data) {
-    if (cells[3] > 0) {
-      let str = cells[0] ? String(cells[0]).substring(0, 3).padStart(3, '0') : 'XXX'
-      str += cells[13].substring(0, 20).toUpperCase().padEnd(20)
-      str += cells[14].substring(0, 10).toUpperCase().padEnd(10)
-      str += cells[15].substring(0, 10).toUpperCase().padEnd(10)
+  for (let row of data) {
+    if (row[3] > 0) {
+      let rowStr = row[0] ? String(row[0]).substring(0, 3).padStart(3, '0') : 'XXX'
+      rowStr += row[13].substring(0, 20).toUpperCase().padEnd(20)
+      rowStr += row[14].substring(0, 10).toUpperCase().padEnd(10)
+      rowStr += row[15].substring(0, 10).toUpperCase().padEnd(10)
       for (let i = 5; i < cols; i++) {
-        if (i < 9 || i > 16) {str += cells[i] ? String(parseInt(cells[i])).substring(0, 4).padStart(4, '0') : '0000'}
+        if (i < 9 || i > 16) {rowStr += row[i] ? String(parseInt(row[i])).substring(0, 4).padStart(4, '0') : '0000'}
       }
-      result += str + "\n"
+      result += rowStr + "\n"
     }
   }
   const folder = DriveApp.getFileById(ss.getId()).getParents().next()
