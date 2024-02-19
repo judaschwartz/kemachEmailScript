@@ -1,15 +1,16 @@
-const year = '23'
-const yt = 'Sukkos' // 'Pesach'
+const year = '24'
+const yt = 'Pesach' // 'Sukkos'
 const orderSheet = `Orders ${yt[0]}${year}`
 const paymentsSheet = `Payments ${yt[0]}${year}`
 const hasCoupons = yt.startsWith('P') ? 2 : 0
-const coupons = [['S4', 400], ['S2', 200], ['MR', 250], ['KK', 300], ['LS', 200], ['KO', 300], ['RE', 400]]
+const coupons = [['S4', 400], ['S2', 200], ['MR', 200], ['KK', 300], ['KO', 300], ['RE', 400], ['LS', 200]]
 const couponCodeCol = 'Coupon code'
 const stayingHomeCol = 'Staying Home'
-const closeDate = 'August 15th'
-const paymentDate = 'August 15, 2023'
-const pickupDate = 'SUNDAY, September 10th'
+const closeDate = 'March 4th'
+const paymentDate = 'March 18th'
+const pickupDate = 'SUNDAY, April 14th'
 const processingFee = 15
+const skipRowsInEmail = [5, 7, 8, 9, 10, 12]
 
 function triggerOnSubmit(e) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet()
@@ -32,6 +33,7 @@ function runManually() {
 function getRemainingDailyEmails() {
   const remaining = MailApp.getRemainingDailyQuota()
   console.log("You can still send " + remaining + " emails today.")
+
   return remaining
 }
 
@@ -58,10 +60,10 @@ function setOrderValues(sheet, orderRow, numColumns) {
       lastProdCol = sheet.getRange(2, j+1, 2, 1).getA1Notation().match(/([A-Z]+)/)[0]
       firstProdCol = firstProdCol || lastProdCol
     }
-    if (hasCoupons && priceHeaderData[1][j] === couponCodeCol) {
+    if (hasCoupons && priceHeaderData[1][j] === stayingHomeCol) {
       stayCol = sheet.getRange(1, j+1, 1, 1).getA1Notation().match(/([A-Z]+)/)[0]
     }
-    if (hasCoupons && priceHeaderData[1][j] === stayingHomeCol) {
+    if (hasCoupons && priceHeaderData[1][j] === couponCodeCol) {
       cpnCol = sheet.getRange(1, j+1, 1, 1).getA1Notation().match(/([A-Z]+)/)[0]
     }
   }
@@ -100,7 +102,7 @@ function composeEmail (sheet, orderRow, numRows, numColumns) {
   let style = 'background:#ddd;'
   message += `<tr style='${style}'><th>Item</th><th>Price</th><th>Qty</th><th>Total</th></tr>`
   for (let j=2;j<numColumns-(4+hasCoupons);j++) {
-    if (row[j]!="" && row[j]!="0" && j!=8 && j!=9 && j!=10) {
+    if (row[j]!="" && parseInt(row[j]) !== 0 && !skipRowsInEmail.includes(j)) {
       style = style ? '' : 'background:#ddd;'
       message += `<tr style='padding:5px; ${style}'><td style='max-width: 350px'>${header_row[j]}</td>`
       message += `<td style='padding:0 15px 0 5px;'>${price_row[j] ? "$"+price_row[j] : ''}</td>`
@@ -184,7 +186,7 @@ function processOrderData(startRow = 4) {
     if (row[cols - (4 + hasCoupons)] > 0) {
       let phone = ''
       for (let i = 0; i < cols; i++) {
-        let val = row[1] ? String(row[i]).toUpperCase() : ''
+        let val = row[1] ? String(row[i]).toUpperCase().trim() : ''
         if (i === 2) {rowStr = val.substring(0, 20).padEnd(20)}
         else if (i === 4 || i === 6) {rowStr += val.substring(0, 10).padEnd(10)}
         else if (i > 10 && i < 14) {
@@ -208,6 +210,7 @@ function processOrderData(startRow = 4) {
     }
   }
   const folder = DriveApp.getFileById(ss.getId()).getParents().next()
+  console.log(`creating fixed length text file orderResults_${timeStamp}.txt with headers: last name (20) first (10) wife (10) phone (10) staying (1) volenteer (1) products (2 each) num itms orders (3) order ID (3) total (4)`)
   folder.createFile(`orderResults_${timeStamp}.txt`, result)
 }
 
@@ -232,5 +235,60 @@ function processPaymentData(startRow = 2) {
     }
   }
   const folder = DriveApp.getFileById(ss.getId()).getParents().next()
+  console.log(`creating fixed length text file paymentResults_${timeStamp}.txt with headers: order ID (3) last name (20) first (10) wife (10) phone (10) payments 8 cols CC,	Zelle,	Check,	Cash. twice (4 each)`)
   folder.createFile(`paymentResults_${timeStamp}.txt`, result)
+}
+
+function processOrderAndPaymentData(startRow = 4) {
+  const timeStamp = (new Date()).toISOString().split('.')[0].replace(/-|:/g,"_")
+  const ss = SpreadsheetApp.getActiveSpreadsheet()
+  const sheet = ss.getSheetByName(orderSheet)
+  const cols = sheet.getLastColumn()
+  const numRows = sheet.getLastRow()
+  const data = sheet.getRange(1, 1, numRows, cols).getValues()
+  const payments = ss.getSheetByName(paymentsSheet)
+  const paymentCols = payments.getLastColumn()
+  const paymentRows = payments.getLastRow()
+  const paymentData = payments.getRange(1, 1, paymentRows, paymentCols).getValues()
+  const recorded = []
+  let result = ''
+  for (let row of data.slice(startRow)) {
+    if (row[cols - (4 + hasCoupons)] > 0) {
+      let phone = ''
+      for (let i = 0; i < cols; i++) {
+        let val = row[1] ? String(row[i]).toUpperCase().trim() : ''
+        if (i === 2) {rowStr = val.substring(0, 20).padEnd(20)}
+        else if (i === 4 || i === 6) {rowStr += val.substring(0, 10).padEnd(10)}
+        else if (i > 10 && i < 14) {
+          phone = phone ? phone : val
+          if (i === 13) {rowStr += phone.padStart(10, '9')}
+        }
+        else if ([data[1][i], data[1][i-1]].includes(stayingHomeCol)) {rowStr += val[0]}
+        else if ([data[1][i], data[1][i+1]].includes('Order ID')) {rowStr += val.substring(0, 3).padStart(3, '0')}
+        else if (data[1][i] === 'total') {rowStr += val.substring(0, 4).padStart(4, '0')}
+        else if (data[2][i]) {rowStr += val.substring(0, 2).padStart(2, '0')}
+        else if (hasCoupons) {
+          if (data[1][i] === couponCodeCol) {rowStr += val.substring(0, 2).padStart(2, 'X')}
+          else if (i === cols - 4) {rowStr += val[0]}
+        }
+      }
+      const paymentRow = paymentData.find(p => p[0] === row[cols - (3 + hasCoupons)])
+      if (paymentRow) {
+        for (let p = 5; p < paymentCols; p++) {
+          if (p < 9 || p > 16) {rowStr += paymentRow[p] ? String(parseInt(paymentRow[p])).substring(0, 4).padStart(4, '0') : '0000'}
+        }
+      } else {
+        rowStr += '0'.repeat(32)
+        console.log(`no payment record found for order #${row[cols - (3 + hasCoupons)]}`)
+      }
+      if (recorded.includes(row[1])) {
+        console.log(`possible duplicate order for ${row[1]}`)
+      }
+      recorded.push(row[1])
+      result += rowStr + "\n"
+    }
+  }
+  const folder = DriveApp.getFileById(ss.getId()).getParents().next()
+  console.log(`creating fixed length text file results_${timeStamp}.txt with headers: last name (20) first (10) wife (10) phone (10) staying (1) volunteer (1) products (2 each) num items ordered (3) order ID (3) total (4) payments 8 cols CC,	Zelle,	Check,	Cash. twice (4 each)`)
+  folder.createFile(`results_${timeStamp}.txt`, result)
 }
