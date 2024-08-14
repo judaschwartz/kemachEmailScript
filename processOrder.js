@@ -1,16 +1,23 @@
 const year = '24'
-const yt = 'Pesach' // 'Sukkos'
+const yt = 'Sukkos' // 'Pesach'
+const closeDate = 'September 1st'
+const paymentDate = 'September 13th'
+const pickupDate = 'SUNDAY, September 29th'
+const processingFee = 15
+const priceSplitter = '- $'
+const skipRowsInEmail = [0,3,5,7,9]
+const coupons = [['S4', 400], ['S2', 200], ['MR', 200], ['KK', 300], ['KO', 300], ['RE', 400], ['LS', 200]]
+const couponCodeCol = 'Coupon code'
+const stayingHomeCol = 'Staying Home'
 const orderSheet = `Orders ${yt[0]}${year}`
 const paymentsSheet = `Payments ${yt[0]}${year}`
 const hasCoupons = yt.startsWith('P') ? 2 : 0
-const coupons = [['ex', 100], ['e2', 200], ['e3', 250]]
-const couponCodeCol = 'Coupon code'
-const stayingHomeCol = 'Staying Home'
-const closeDate = 'March 4th'
-const paymentDate = 'March 18th'
-const pickupDate = 'SUNDAY, April 14th'
-const processingFee = 15
-const skipRowsInEmail = [5, 7, 8, 9, 10, 12]
+
+function getRemainingDailyEmails() {
+  const remaining = MailApp.getRemainingDailyQuota()
+  console.log("You can still send " + remaining + " emails today.")
+  return remaining
+}
 
 function triggerOnSubmit(e) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet()
@@ -30,13 +37,6 @@ function runManually() {
   }
 }
 
-function getRemainingDailyEmails() {
-  const remaining = MailApp.getRemainingDailyQuota()
-  console.log("You can still send " + remaining + " emails today.")
-
-  return remaining
-}
-
 function primaryOrderProcessor(sheet, orderRow, send) {
   const numRows = sheet.getLastRow()
   const numColumns = sheet.getLastColumn()
@@ -51,7 +51,7 @@ function setOrderValues(sheet, orderRow, numColumns) {
   const semail = sheet.getRange(orderRow, 2).getValue()
   const dateStamp = sheet.getRange(orderRow, 1).getValue()
   const orderNum = semail.endsWith('@matanbsayser.org') ? semail.replace('@matanbsayser.org', '') : 96+orderRow
-  sheet.getRange(orderRow, numColumns-(2+hasCoupons)).setValue(orderNum)
+  const lasturl = getEditLink(sheet.getFormUrl(), dateStamp, semail)
   const totalItemsCellName = sheet.getRange(orderRow, numColumns-(3+hasCoupons)).getA1Notation()
   let totalFormula = hasCoupons ? "=0" : `=IF(${totalItemsCellName}>0,${processingFee},0)`
   let firstProdCol, lastProdCol, cpnCol, stayCol
@@ -68,8 +68,8 @@ function setOrderValues(sheet, orderRow, numColumns) {
     }
   }
   totalFormula += `+SUMPRODUCT(${firstProdCol}${orderRow}:${lastProdCol}${orderRow}, ${firstProdCol}$3:${lastProdCol}$3)`
-  sheet.getRange(orderRow, numColumns-(3+hasCoupons)).setValue(`=SUM(${firstProdCol}${orderRow}:${lastProdCol}${orderRow})`)
-  sheet.getRange(orderRow, numColumns-(1+hasCoupons)).setValue(totalFormula)
+  const countFormula = `=SUM(${firstProdCol}${orderRow}:${lastProdCol}${orderRow})`
+  const endInfo = [countFormula, orderNum, totalFormula]
   if (hasCoupons) {
     const totalCellName = sheet.getRange(orderRow, numColumns-3).getA1Notation()
     let couponFormula= `=-1*IF("Yes"=${stayCol}${orderRow}, MIN(CEILING.MATH(${totalCellName}/2), 0`
@@ -77,13 +77,9 @@ function setOrderValues(sheet, orderRow, numColumns) {
       couponFormula += `+(IFERROR(SEARCH("${coupon[0]}", ${cpnCol}${orderRow})*${coupon[1]}, 0))`
     })
     couponFormula += '), 0)'
-    sheet.getRange(orderRow, numColumns-2).setValue(couponFormula)
-    sheet.getRange(orderRow, numColumns-1).setValue(`=IF(${totalCellName}>0,${processingFee},0)+${totalCellName}+${sheet.getRange(orderRow, numColumns-2).getA1Notation()}`)
+    endInfo.push(couponFormula, `=IF(${totalCellName}>0,${processingFee},0)+${totalCellName}+${sheet.getRange(orderRow, numColumns-2).getA1Notation()}`)
   }
-  const lasturl = getEditLink(sheet.getFormUrl(), dateStamp, semail)
-  if (lasturl){
-    sheet.getRange(orderRow, numColumns).setValue(lasturl)
-  }
+  sheet.getRange(orderRow, numColumns - (3 + hasCoupons), 1, 4 + hasCoupons).setValues([[...endInfo, lasturl]])
   return semail
 }
 
@@ -150,7 +146,7 @@ function getEditLink(formUrl, timeStamp='', semail = '') {
     form = FormApp.openByUrl(formUrl)
   } catch {
     console.log('form unavailble')
-    Utilities.sleep(15*1000)
+    Utilities.sleep(60*1000)
     console.log('retry form')
     form = FormApp.openByUrl(formUrl)
   }
@@ -166,7 +162,6 @@ function getEditLink(formUrl, timeStamp='', semail = '') {
       const femail = response.getRespondentEmail()
       if (femail == semail) {
         lasturl = response.getEditResponseUrl()
-        // console.log(lasturl)
       }
     }
   }
@@ -181,6 +176,7 @@ function processOrderData(startRow = 4) {
   const numRows = sheet.getLastRow()
   const data = sheet.getRange(1, 1, numRows, cols).getValues()
   const recorded = []
+  const phoneCols = [9, 10, 11, 14]
   let result = ''
   for (let row of data.slice(startRow)) {
     if (row[cols - (4 + hasCoupons)] > 0) {
@@ -188,18 +184,19 @@ function processOrderData(startRow = 4) {
       for (let i = 0; i < cols; i++) {
         let val = row[1] ? String(row[i]).toUpperCase().trim() : ''
         if (i === 2) {rowStr = val.substring(0, 20).padEnd(20)}
-        else if (i === 4 || i === 6) {rowStr += val.substring(0, 10).padEnd(10)}
-        else if (i > 10 && i < 14) {
-          phone = phone ? phone : val
-          if (i === 13) {rowStr += phone.padStart(10, '9')}
+        else if (i === 4 || i === 5) {rowStr += val.substring(0, 10).padEnd(10)}
+        else if (phoneCols.includes(i)) {
+          phone = !val ? phone : val
+          if (i === 14) {rowStr += phone.padStart(10, '9')}
         }
-        else if ([data[1][i], data[1][i-1]].includes(stayingHomeCol)) {rowStr += val[0]}
-        else if ([data[1][i], data[1][i+1]].includes('Order ID')) {rowStr += val.substring(0, 3).padStart(3, '0')}
+        else if ([stayingHomeCol, 'Volunteer'].includes(data[1][i])) {rowStr += val === 'YES' ? 'Y' : 'N'}
+        else if (data[1][i] === 'Order ID') {rowStr += val.substring(0, 3).padStart(3, '0')}
         else if (data[1][i] === 'total') {rowStr += val.substring(0, 4).padStart(4, '0')}
         else if (data[2][i]) {rowStr += val.substring(0, 2).padStart(2, '0')}
         else if (hasCoupons) {
           if (data[1][i] === couponCodeCol) {rowStr += val.substring(0, 2).padStart(2, 'X')}
-          else if (i === cols - 4) {rowStr += val[0]}
+          // else if (data[1][i] === 'Coupon discount') {rowStr += val.substr(-3).padStart(3, '0')}
+          else if (data[1][i] === 'Produce package') {rowStr += val === 'YES' ? 'Y' : 'N'}
         }
       }
       if (recorded.includes(row[1])) {
@@ -223,15 +220,17 @@ function processPaymentData(startRow = 2) {
   const data = sheet.getRange(startRow, 1, numRows, cols).getValues()
   let result = ''
   for (let row of data) {
-    if (row[3] > 0) {
+    let adj = '0000'
+    if (row[3] > 0) { // } && !['total', 'count'].some(w => row[0].indexOf(w) + 1)) {
       let rowStr = row[0] ? String(row[0]).substring(0, 3).padStart(3, '0') : 'XXX'
       rowStr += row[13].substring(0, 20).toUpperCase().padEnd(20)
       rowStr += row[14].substring(0, 10).toUpperCase().padEnd(10)
       rowStr += row[15].substring(0, 10).toUpperCase().padEnd(10)
       for (let i = 5; i < cols; i++) {
         if (i < 9 || i > 16) {rowStr += row[i] ? String(parseInt(row[i])).substring(0, 4).padStart(4, '0') : '0000'}
+        if (i === 9) {adj = parseInt(row[i]) < -1 ? String(Math.abs(parseInt(row[i]))).substring(0, 4).padStart(4, '0') : '0000'}
       }
-      result += rowStr + "\n"
+      result += rowStr + adj + "\n"
     }
   }
   const folder = DriveApp.getFileById(ss.getId()).getParents().next()
@@ -291,4 +290,14 @@ function processOrderAndPaymentData(startRow = 4) {
   const folder = DriveApp.getFileById(ss.getId()).getParents().next()
   console.log(`creating fixed length text file results_${timeStamp}.txt with headers: last name (20) first (10) wife (10) phone (10) staying (1) volunteer (1) products (2 each) num items ordered (3) order ID (3) total (4) payments 8 cols CC,	Zelle,	Check,	Cash. twice (4 each)`)
   folder.createFile(`results_${timeStamp}.txt`, result)
+}
+
+function intilizeProdNamePriceRows() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(orderSheet)
+  const cols = sheet.getLastColumn()
+  const data = sheet.getRange(1, 1, 1, cols).getValues()
+  sheet.getRange(2, 1, 2, cols + 4 + hasCoupons).setValues([
+    [...data[0].map((v, i) => !skipRowsInEmail.includes(i) ? v.split(priceSplitter)[0]?.trim() : ''), '# of Items ordered', 'Order ID',/** 'subtotal', 'Coupon discount', */'total', 'edit link'],
+    [...data[0].map((v, i) => !skipRowsInEmail.includes(i) ? v.split(priceSplitter)[1]?.trim() : ''),,,,,]
+  ])
 }
