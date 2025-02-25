@@ -1,11 +1,11 @@
-const year = '24'
-const yt = 'Sukkos' // 'Pesach'
-const closeDate = 'September 1st'
-const paymentDate = 'September 13th'
-const pickupDate = 'SUNDAY, September 29th'
+const year = '25'
+const yt = 'Pesach' // 'Sukkos'
+const closeDate = 'March 4th'
+const paymentDate = 'March 24th'
+const pickupDate = 'SUNDAY, April 6th'
 const processingFee = 15
 const priceSplitter = '- $'
-const skipRowsInEmail = [0,3,5,7,9]
+const skipRowsInEmail = [0,5,7,12]
 const coupons = [['S4', 400], ['S2', 200], ['MR', 200], ['KK', 300], ['KO', 300], ['RE', 400], ['LS', 200]]
 const couponCodeCol = 'Coupon code'
 const stayingHomeCol = 'Staying Home'
@@ -30,18 +30,29 @@ function runManually() {
   const numColumns = sheet.getLastColumn()
   const numRows = sheet.getLastRow() + 1
   for (let row = 5; row < numRows; row++) {
-    if (sheet.getRange(row, numColumns-1).isBlank() && !sheet.getRange(row, 2).isBlank()) {
+    if (sheet.getRange(row, numColumns-(2+hasCoupons)).isBlank() && !sheet.getRange(row, 2).isBlank()) {
       console.log('Drafting Email for ', sheet.getRange(row, 2).getValue())
       primaryOrderProcessor(sheet, row, false)
     }
   }
 }
 
+function intilizeProdNamePriceRows() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(orderSheet)
+  const cols = sheet.getLastColumn()
+  const data = sheet.getRange(1, 1, 1, cols).getValues()
+  const pRows = hasCoupons ? ['subtotal', 'Coupon discount'] : []
+  sheet.getRange(2, 1, 2, cols + 4 + hasCoupons).setValues([
+    [...data[0].map((v, i) => !skipRowsInEmail.includes(i) ? v.split(priceSplitter)[0]?.trim() : ''), '# of Items ordered', 'Order ID', ...pRows, 'total', 'edit link'],
+    [...data[0].map((v, i) => !skipRowsInEmail.includes(i) ? v.split(priceSplitter)[1]?.trim() : ''),,,,,]
+  ])
+}
+
 function primaryOrderProcessor(sheet, orderRow, send) {
   const numRows = sheet.getLastRow()
   const numColumns = sheet.getLastColumn()
   const semail = setOrderValues(sheet, orderRow, numColumns)
-  const { subject, message } = composeEmail(sheet, orderRow, numRows, numColumns)
+  let { subject, message } = composeEmail(sheet, orderRow, numRows, numColumns)
   const draft = GmailApp.createDraft(semail, subject, message, {htmlBody: message})
   send && draft.send()
 }
@@ -50,14 +61,14 @@ function setOrderValues(sheet, orderRow, numColumns) {
   const priceHeaderData = sheet.getRange(1, 1, 3, numColumns).getValues()
   const semail = sheet.getRange(orderRow, 2).getValue()
   const dateStamp = sheet.getRange(orderRow, 1).getValue()
-  const orderNum = semail.endsWith('@matanbsayser.org') ? semail.replace('@matanbsayser.org', '') : 96+orderRow
+  const orderNum = semail.endsWith('@matanbsayser.org') ? semail.replace('@matanbsayser.org', '') : 96 + orderRow
   const lasturl = getEditLink(sheet.getFormUrl(), dateStamp, semail)
   const totalItemsCellName = sheet.getRange(orderRow, numColumns-(3+hasCoupons)).getA1Notation()
-  let totalFormula = hasCoupons ? "=0" : `=IF(${totalItemsCellName}>0,${processingFee},0)`
+  let totalFormula = hasCoupons ? '=0' : `=IF(${totalItemsCellName}>0,${processingFee}`
   let firstProdCol, lastProdCol, cpnCol, stayCol
   for (let j=2; j < numColumns-1; j++) {
     if (priceHeaderData[2][j]) {
-      lastProdCol = sheet.getRange(2, j+1, 2, 1).getA1Notation().match(/([A-Z]+)/)[0]
+      lastProdCol = j + 1
       firstProdCol = firstProdCol || lastProdCol
     }
     if (hasCoupons && priceHeaderData[1][j] === stayingHomeCol) {
@@ -67,7 +78,9 @@ function setOrderValues(sheet, orderRow, numColumns) {
       cpnCol = sheet.getRange(1, j+1, 1, 1).getA1Notation().match(/([A-Z]+)/)[0]
     }
   }
-  totalFormula += `+SUMPRODUCT(${firstProdCol}${orderRow}:${lastProdCol}${orderRow}, ${firstProdCol}$3:${lastProdCol}$3)`
+  firstProdCol = sheet.getRange(2, firstProdCol, 2, 1).getA1Notation().match(/([A-Z]+)/)[0]
+  lastProdCol = sheet.getRange(2, lastProdCol, 2, 1).getA1Notation().match(/([A-Z]+)/)[0]
+  totalFormula += `+SUMPRODUCT(${firstProdCol}${orderRow}:${lastProdCol}${orderRow}, ${firstProdCol}$3:${lastProdCol}$3)${hasCoupons ? '' : ',"")'}`  
   const countFormula = `=SUM(${firstProdCol}${orderRow}:${lastProdCol}${orderRow})`
   const endInfo = [countFormula, orderNum, totalFormula]
   if (hasCoupons) {
@@ -77,7 +90,8 @@ function setOrderValues(sheet, orderRow, numColumns) {
       couponFormula += `+(IFERROR(SEARCH("${coupon[0]}", ${cpnCol}${orderRow})*${coupon[1]}, 0))`
     })
     couponFormula += '), 0)'
-    endInfo.push(couponFormula, `=IF(${totalCellName}>0,${processingFee},0)+${totalCellName}+${sheet.getRange(orderRow, numColumns-2).getA1Notation()}`)
+    const gtf = `=IF(${totalItemsCellName}>0,${processingFee}+${totalCellName}+${sheet.getRange(orderRow, numColumns-2).getA1Notation()},"")`
+    endInfo.push(couponFormula, gtf)
   }
   sheet.getRange(orderRow, numColumns - (3 + hasCoupons), 1, 4 + hasCoupons).setValues([[...endInfo, lasturl]])
   return semail
@@ -121,7 +135,7 @@ function composeEmail (sheet, orderRow, numRows, numColumns) {
     message += 'We also accept credit card payments for your Kemach order! There is an additional 3% charge to cover the credit card processing fee if you choose to pay with credit card.'
     const ccFee = Math.floor(row[numColumns-2]*0.03)
     message += `<table style='width: 100%; font-size:calc(0.6vw + 9px); border-spacing: 0;'><tr style='background:#ddd;'><td>Three percent additional charge <b>ONLY</b> IF PAYING WITH CREDIT CARD</td><td><b>$${ccFee}</b></td></tr>`
-    message += `<tr style='padding: 5px;'><td style='background: #ffff8e; width: calc(100% - 105px)'>Order Total For Credit Card payment ONLY</td><td style='width 105px; text-align: center'><b>$${row[numColumns-2] + ccFee}</b></td></tr></table>`
+    message += `<tr style='padding: 5px;'><td>Order Total For Credit Card payment ONLY</td><td style='width 105px; text-align: center'><b>$${row[numColumns-2] + ccFee}</b></td></tr></table>`
     message += `<a style="background:red; padding:15px 0; font-size:150%; border-radius: 10px; display: block; width: 60%; margin: 20px 20%; text-align:center; color: #fff; border: 1px solid #000" href="matanbsayser.org/Kemach?amnt=${row[numColumns-2] + ccFee}&orderid=${row[numColumns-(3+hasCoupons)]}">PAY ONLINE</a>`
     message += `<p>If you are paying with cash or check please make sure you submit your payment to 1928 Janette Avenue Cleveland, Ohio 44118 before ${paymentDate}. When you drop off the payment PLEASE make sure it is in a sealed envelope with your name and address clearly written on it.</p>`
     message += `DISTRIBUTION IS SLATED FOR <span style='background:yellow;'>${pickupDate}.</span> at Hillcrest Foods 2735 East 40th, Cleveland, Ohio 44115<br>Important: Please enter through the back road.<br>`
@@ -176,7 +190,7 @@ function processOrderData(startRow = 4) {
   const numRows = sheet.getLastRow()
   const data = sheet.getRange(1, 1, numRows, cols).getValues()
   const recorded = []
-  const phoneCols = [9, 10, 11, 14]
+  const phoneCols = [10, 11, 12]
   let result = ''
   for (let row of data.slice(startRow)) {
     if (row[cols - (4 + hasCoupons)] > 0) {
@@ -184,10 +198,10 @@ function processOrderData(startRow = 4) {
       for (let i = 0; i < cols; i++) {
         let val = row[1] ? String(row[i]).toUpperCase().trim() : ''
         if (i === 2) {rowStr = val.substring(0, 20).padEnd(20)}
-        else if (i === 4 || i === 5) {rowStr += val.substring(0, 10).padEnd(10)}
+        else if (i === 4 || i === 6) {rowStr += val.substring(0, 10).padEnd(10)}
         else if (phoneCols.includes(i)) {
           phone = !val ? phone : val
-          if (i === 14) {rowStr += phone.padStart(10, '9')}
+          if (i === phoneCols.at(-1)) {rowStr += phone.padStart(10, '9')}
         }
         else if ([stayingHomeCol, 'Volunteer'].includes(data[1][i])) {rowStr += val === 'YES' ? 'Y' : 'N'}
         else if (data[1][i] === 'Order ID') {rowStr += val.substring(0, 3).padStart(3, '0')}
@@ -290,14 +304,4 @@ function processOrderAndPaymentData(startRow = 4) {
   const folder = DriveApp.getFileById(ss.getId()).getParents().next()
   console.log(`creating fixed length text file results_${timeStamp}.txt with headers: last name (20) first (10) wife (10) phone (10) staying (1) volunteer (1) products (2 each) num items ordered (3) order ID (3) total (4) payments 8 cols CC,	Zelle,	Check,	Cash. twice (4 each)`)
   folder.createFile(`results_${timeStamp}.txt`, result)
-}
-
-function intilizeProdNamePriceRows() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(orderSheet)
-  const cols = sheet.getLastColumn()
-  const data = sheet.getRange(1, 1, 1, cols).getValues()
-  sheet.getRange(2, 1, 2, cols + 4 + hasCoupons).setValues([
-    [...data[0].map((v, i) => !skipRowsInEmail.includes(i) ? v.split(priceSplitter)[0]?.trim() : ''), '# of Items ordered', 'Order ID',/** 'subtotal', 'Coupon discount', */'total', 'edit link'],
-    [...data[0].map((v, i) => !skipRowsInEmail.includes(i) ? v.split(priceSplitter)[1]?.trim() : ''),,,,,]
-  ])
 }
